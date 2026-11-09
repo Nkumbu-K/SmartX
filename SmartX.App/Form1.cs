@@ -32,7 +32,8 @@ namespace SmartX.App
 
         private void button1_Click(object sender, EventArgs e)
         {
-            MessageBox.Show(  "Network Topology and Mesh Routing is reserved for the final PoE module.", "Network Topology", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using var network = new NetworkTopology();
+            network.ShowDialog(this);
         }
 
         private void Form1_Load(object sender, EventArgs e)

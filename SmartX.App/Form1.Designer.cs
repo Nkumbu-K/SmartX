@@ -1,4 +1,4 @@
-﻿namespace SmartX.App
+namespace SmartX.App
 {
     partial class Form1
     {
@@ -135,7 +135,7 @@
             button1.Name = "button1";
             button1.Size = new Size(94, 29);
             button1.TabIndex = 2;
-            button1.Text = "Disabled";
+            button1.Text = "Open";
             button1.UseVisualStyleBackColor = true;
             button1.Click += button1_Click;
             // 
