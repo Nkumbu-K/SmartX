@@ -21,6 +21,42 @@ public sealed class AvlTree<TKey, TValue> where TKey : IComparable<TKey>
         Count++;
     }
 
+    // Visits only intersecting branches: O(log n + k) for k returned values.
+    public List<TValue> Range(TKey from, TKey to) => Range(from, to, out _);
+
+    public List<TValue> Range(TKey from, TKey to, out int visitedNodes)
+    {
+        if (from.CompareTo(to) > 0) throw new ArgumentException("Start must precede end.");
+        var result = new List<TValue>();
+        int visited = 0;
+        void Visit(Node? node)
+        {
+            if (node is null) return;
+            visited++;
+            int lower = from.CompareTo(node.Key), upper = to.CompareTo(node.Key);
+            if (lower < 0) Visit(node.Left);
+            if (lower <= 0 && upper >= 0) result.AddRange(node.Values);
+            if (upper > 0) Visit(node.Right);
+        }
+        Visit(root);
+        visitedNodes = visited;
+        return result;
+    }
+
+    public List<TValue> All()
+    {
+        var result = new List<TValue>();
+        void Visit(Node? node)
+        {
+            if (node is null) return;
+            Visit(node.Left);
+            result.AddRange(node.Values);
+            Visit(node.Right);
+        }
+        Visit(root);
+        return result;
+    }
+
     private static int GetHeight(Node? node) => node?.Height ?? 0;
     private static void Update(Node node) =>
         node.Height = 1 + Math.Max(GetHeight(node.Left), GetHeight(node.Right));
