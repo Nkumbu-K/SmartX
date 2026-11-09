@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -49,6 +49,10 @@ namespace SmartX.App.Forms
                 ? "Sensor Telemetry"
                 : "All Sensor Telemetry";
 
+            var historyButton = new Button { Text = "Search History", Dock = DockStyle.Bottom, Height = 35 };
+            historyButton.Click += (_, _) => { using var history = new HistoricalTelemetry(_sensorId); history.ShowDialog(this); };
+            Controls.Add(historyButton);
+            historyButton.BringToFront();
             Shown += Telemetry_Shown;
             FormClosing += Telemetry_FormClosing;
         }
