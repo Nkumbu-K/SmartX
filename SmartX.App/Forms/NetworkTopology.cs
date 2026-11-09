@@ -35,7 +35,7 @@ public sealed class NetworkTopology : Form
         AddButton("Fewest Hops", () => ShowRoute(false));
         AddButton("Sensor History", () => { using var history = new HistoricalTelemetry(Source); history.ShowDialog(this); return Task.CompletedTask; });
         Controls.Add(canvas); Controls.Add(output); Controls.Add(toolbar); Controls.Add(status);
-        canvas.NodeClicked += id => source.SelectedItem = ((List<MeshNodeDto>)source.DataSource).Find(n => n.Id == id);
+        canvas.NodeClicked += id => { if (source.DataSource is List<MeshNodeDto> items) source.SelectedItem = items.Find(n => n.Id == id); };
         Shown += async (_, _) => await Run(Reload);
         FormClosed += (_, _) => client.Dispose();
     }
@@ -84,14 +84,14 @@ public sealed class NetworkTopology : Form
         await Send(HttpMethod.Put, $"api/network/nodes/{Source}/availability", new { available });
         await Reload();
     }
-    private string Name(Guid id) => canvas.Snapshot.Nodes.Find(n => n.Id == id)?.MacAddress ?? id.ToString();
+    private string NodeName(Guid id) => canvas.Snapshot.Nodes.Find(n => n.Id == id)?.MacAddress ?? id.ToString();
     private async Task Traverse(string algorithm)
     {
         await Reload();
         var result = await client.GetFromJsonAsync<TraversalDto>($"api/network/traverse/{Source}?algorithm={algorithm}");
         if (result is null) return;
         canvas.Visited = result.Visited.ToHashSet(); canvas.Invalidate();
-        output.Text = $"{algorithm.ToUpperInvariant()} visit order:\r\n{string.Join("\r\n", result.Visited.Select(Name))}\r\n\r\nUnreachable online nodes:\r\n{string.Join("\r\n", result.Unreachable.Select(Name))}\r\n\r\nUnavailable:\r\n{string.Join("\r\n", result.Unavailable.Select(Name))}";
+        output.Text = $"{algorithm.ToUpperInvariant()} visit order:\r\n{string.Join("\r\n", result.Visited.Select(NodeName))}\r\n\r\nUnreachable online nodes:\r\n{string.Join("\r\n", result.Unreachable.Select(NodeName))}\r\n\r\nUnavailable:\r\n{string.Join("\r\n", result.Unavailable.Select(NodeName))}";
     }
     private async Task ShowTree()
     {
@@ -101,7 +101,7 @@ public sealed class NetworkTopology : Form
         canvas.Tree = tree.Links; canvas.Invalidate();
         output.Text = $"Kruskal: {tree.Links.Count} links\r\nTotal power cost: {tree.TotalCost:0.##}\r\nActive components: {tree.Components}\r\n" +
             (tree.Components == 1 ? "Connected minimum spanning tree." : "Disconnected forest; no single tree connects all active nodes.") +
-            "\r\n\r\n" + string.Join("\r\n", tree.Links.Select(e => $"{Name(e.From)} ↔ {Name(e.To)}: {e.Cost}"));
+            "\r\n\r\n" + string.Join("\r\n", tree.Links.Select(e => $"{NodeName(e.From)} ↔ {NodeName(e.To)}: {e.Cost}"));
     }
     private async Task ShowRoute(bool useTree)
     {
@@ -110,6 +110,6 @@ public sealed class NetworkTopology : Form
         if (route is null) return;
         if (!useTree) canvas.Tree = [];
         canvas.Route = route.Hops; canvas.Invalidate();
-        output.Text = $"{route.Message}\r\nReachable: {route.Reachable}\r\nRoute cost: {route.TotalCost:0.##}\r\n\r\n{string.Join("\r\n↓\r\n", route.Hops.Select(Name))}\r\n\r\nTree routes follow the minimum total network cost. Fewest Hops uses BFS; neither claims the cheapest weighted path for an individual pair.";
+        output.Text = $"{route.Message}\r\nReachable: {route.Reachable}\r\nRoute cost: {route.TotalCost:0.##}\r\n\r\n{string.Join("\r\n↓\r\n", route.Hops.Select(NodeName))}\r\n\r\nTree routes follow the minimum total network cost. Fewest Hops uses BFS; neither claims the cheapest weighted path for an individual pair.";
     }
 }

@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.ComponentModel;
 
 namespace SmartX.App.Forms;
 
@@ -14,9 +15,13 @@ public sealed record TraversalDto(List<Guid> Visited, List<Guid> Unreachable, Li
 
 public sealed class MeshCanvas : Panel
 {
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public MeshSnapshotDto Snapshot { get; set; } = new([], []);
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public List<MeshLinkDto> Tree { get; set; } = [];
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public List<Guid> Route { get; set; } = [];
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public HashSet<Guid> Visited { get; set; } = [];
     public event Action<Guid>? NodeClicked;
     private readonly Dictionary<Guid, PointF> positions = new();
