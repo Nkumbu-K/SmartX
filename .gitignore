@@ -11,3 +11,5 @@ obj/
 
 # Test output
 TestResults/
+# Local persisted application data
+SmartX.Api/App_Data/

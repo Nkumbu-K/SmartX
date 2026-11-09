@@ -7,6 +7,7 @@ using PROG7312_SmartX.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<DataClass>();
+builder.Services.AddSingleton<MeshTopologyService>();
 builder.Services.AddSingleton<AnomalyDetection>();
 builder.Services.AddSingleton<TelemetryQueueService>();
 builder.Services.AddSingleton<AlertPriorityQueueService>();
