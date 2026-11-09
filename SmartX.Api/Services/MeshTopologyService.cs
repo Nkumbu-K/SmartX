@@ -62,6 +62,18 @@ public sealed class MeshTopologyService
         }
     }
 
+    public void SetAvailability(Guid id, bool available)
+    {
+        lock (gate)
+        {
+            if (!devices.DeviceExists(id)) throw new ArgumentException("Sensor not found.");
+            var updated = new HashSet<Guid>(offline);
+            if (available) updated.Remove(id); else updated.Add(id);
+            Save(links, updated);
+            offline = updated;
+        }
+    }
+
     private static bool SameEdge(MeshLink edge, Guid from, Guid to) =>
         (edge.From == from && edge.To == to) || (edge.From == to && edge.To == from);
 
