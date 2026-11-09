@@ -4,11 +4,27 @@ using PROG7312_SmartX.Models;
 
 namespace PROG7312_SmartX.Endpoints;
 
+public sealed record AvailabilityRequest(bool Available);
+
 public static class MeshEndpoints
 {
     public static void MapMeshEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/network");
+        group.MapPut("/links", (MeshLink link, MeshTopologyService mesh) =>
+        {
+            try { mesh.UpsertLink(link); return Results.Ok(mesh.Snapshot()); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+        });
+        group.MapDelete("/links/{from:guid}/{to:guid}", (Guid from, Guid to, MeshTopologyService mesh) =>
+            mesh.RemoveLink(from, to) ? Results.NoContent() : Results.NotFound());
+        group.MapPut("/nodes/{id:guid}/availability", (Guid id, AvailabilityRequest request,
+            DeviceLookupService devices, MeshTopologyService mesh) =>
+        {
+            if (!devices.DeviceExists(id)) return Results.NotFound(new { message = "Sensor not found." });
+            mesh.SetAvailability(id, request.Available);
+            return Results.Ok(mesh.Snapshot());
+        });
         group.MapGet("/", (MeshTopologyService mesh) => Results.Ok(mesh.Snapshot()));
         group.MapGet("/mst", (MeshTopologyService mesh) => Results.Ok(new MeshGraph(mesh.Snapshot()).MinimumSpanningForest()));
         group.MapGet("/traverse/{start:guid}", (Guid start, string? algorithm, MeshTopologyService mesh) =>
