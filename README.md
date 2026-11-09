@@ -44,7 +44,7 @@ The application uses data structures suited to different operations:
 | `PriorityQueue<TElement, TPriority>` | Prioritises alerts so higher-priority alerts can be processed first. Lower numeric priorities are processed before higher ones. |
 | `Stack<T>` | Maintains command history and supports undoing the most recent command. |
 | `Dictionary<TKey, TValue>` | Provides efficient device lookup using unique identifiers. |
-| `SortedDictionary<TKey, TValue>` | Organises telemetry history by timestamp. |
+| `AvlTree<DateTime, TelemetryPacket<double>>` | Indexes global and per-sensor history for timestamp range queries. |
 | `HashSet<T>` | Tracks unique faulty devices and avoids duplicate entries. |
 
 ### Recommendations and Pattern Analysis
@@ -331,3 +331,17 @@ Smart-X  demonstrates the integration of a .NET desktop application with an ASP.
 The project combines sensor registration, telemetry collection, anomaly detection, command management, data structures, and recommendations in a single application. Its modular design separates the user interface, data models, API communication, and business logic, making the system easier to maintain and extend.
 
 
+
+
+## Part 3 — Historical Queries and Mesh Routing
+
+The main menu now opens a network dashboard with weighted wireless links,
+BFS/DFS discovery, Kruskal minimum spanning forests, gateway routes, link editing
+and simulated node failures. The telemetry screen also provides AVL date-range
+search. See [Part 3 setup, algorithms, API and demo guide](docs/PART3.md).
+
+Run algorithm checks with `dotnet run --project SmartX.Checks`. After building the
+API, run `python scripts/check_api.py` for isolated HTTP and restart checks.
+
+The simulated topology uses registered sensor identifiers and explicit availability;
+it does not connect to live ESP32 hardware. Power costs are relative estimates.
