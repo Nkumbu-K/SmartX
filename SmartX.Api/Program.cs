@@ -1,3 +1,4 @@
+using PROG7312_SmartX.Endpoints;
 using PROG7312_SmartX.Data;
 using PROG7312_SmartX.DataTransfer;
 using PROG7312_SmartX.Models;
@@ -33,6 +34,7 @@ foreach (var packet in dataStore.NumericTelemetry)
     historyService.AddReading(packet);
 }
 app.UseHttpsRedirection();
+app.MapHistoryQueries();
 
 //Get all registered devices
 app.MapGet("/api/devices", (DeviceLookupService deviceLookup) =>
