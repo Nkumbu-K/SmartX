@@ -62,6 +62,24 @@ public sealed class MeshTopologyService
         }
     }
 
+    // Explicit demo action only; never overwrite an existing mesh.
+    public bool TryCreateDemo()
+    {
+        lock (gate)
+        {
+            if (links.Count > 0) return false;
+            var ids = devices.GetAllDevices().Select(s => s.Id).Order().ToArray();
+            if (ids.Length < 2) throw new ArgumentException("Register at least two sensors first.");
+            var demo = new List<MeshLink>();
+            for (int i = 1; i < ids.Length; i++) demo.Add(new(ids[i - 1], ids[i], 1 + i % 5));
+            // Two-hop alternatives provide cycles and failure rerouting.
+            for (int i = 2; i < ids.Length; i++) demo.Add(new(ids[i - 2], ids[i], 4 + i % 3));
+            Save(demo, offline);
+            links = demo;
+            return true;
+        }
+    }
+
     public void SetAvailability(Guid id, bool available)
     {
         lock (gate)

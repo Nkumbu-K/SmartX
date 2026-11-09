@@ -11,6 +11,15 @@ public static class MeshEndpoints
     public static void MapMeshEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/network");
+        group.MapPost("/demo", (MeshTopologyService mesh) =>
+        {
+            try
+            {
+                return mesh.TryCreateDemo() ? Results.Ok(mesh.Snapshot())
+                    : Results.Conflict(new { message = "A mesh already exists. Demo creation leaves it unchanged." });
+            }
+            catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+        });
         group.MapPut("/links", (MeshLink link, MeshTopologyService mesh) =>
         {
             try { mesh.UpsertLink(link); return Results.Ok(mesh.Snapshot()); }
