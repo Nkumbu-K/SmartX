@@ -36,6 +36,7 @@ foreach (var packet in dataStore.NumericTelemetry)
 }
 app.UseHttpsRedirection();
 app.MapHistoryQueries();
+app.MapMeshEndpoints();
 
 //Get all registered devices
 app.MapGet("/api/devices", (DeviceLookupService deviceLookup) =>
