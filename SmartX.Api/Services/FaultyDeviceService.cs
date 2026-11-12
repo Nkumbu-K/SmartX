@@ -1,59 +1,39 @@
-﻿namespace PROG7312_SmartX.Services
+using PROG7312_SmartX.Data;
+
+namespace PROG7312_SmartX.Services;
+
+public sealed class FaultyDeviceService
 {
-    public class FaultyDeviceService
+    private readonly HashSet<Guid> faultyDevices;
+    private readonly object gate = new();
+    private readonly DeviceLookupService devices;
+    private readonly DataClass data;
+
+    public FaultyDeviceService(DeviceLookupService devices, DataClass data)
     {
-        private readonly HashSet<Guid> faultyDevices = new(); //Jamro (2018)
+        this.devices = devices;
+        this.data = data;
+        faultyDevices = data.sensor.Where(s => s.IsFaulty).Select(s => s.Id).ToHashSet();
+    }
 
-        private readonly object deviceLock = new();
+    public bool MarkAsFaulty(Guid id) => SetFault(id, true);
+    public bool MarkAsRecovered(Guid id) => SetFault(id, false);
 
-        // Mark a device as faulty
-        public bool MarkAsFaulty(Guid sensorId)
+    private bool SetFault(Guid id, bool faulty)
+    {
+        lock (gate)
         {
-            lock (deviceLock)
-            {
-                return faultyDevices.Add(sensorId);
-            }
-        }
-
-        // Remove device after fixed
-        public bool MarkAsRecovered(Guid sensorId)
-        {
-            lock (deviceLock)
-            {
-                return faultyDevices.Remove(sensorId); //Jamro (2018)
-            }
-        }
-
-        // Check whether a device is faulty
-        public bool IsFaulty(Guid sensorId)
-        {
-            lock (deviceLock)
-            {
-                return faultyDevices.Contains(sensorId);
-            }
-        }
-
-        //Get all faulty devices
-        public List<Guid> GetFaultyDevices()
-        {
-            lock (deviceLock)
-            {
-                return faultyDevices.ToList();
-            }
-        }
-
-        // Count unique faulty devices
-        public int GetFaultyCount()
-        {
-            lock (deviceLock)
-            {
-                return faultyDevices.Count;
-            }
+            var sensor = devices.GetDevice(id);
+            if (sensor is null) return false;
+            bool changed = faulty ? faultyDevices.Add(id) : faultyDevices.Remove(id);
+            sensor.IsFaulty = faulty;
+            sensor.IsOnline = !sensor.MeshOffline && !faulty;
+            data.SaveToDisk();
+            return changed;
         }
     }
-}
-/*
- Reference List 
 
-  Jamro, M. (2018) C# Data Structures and Algorithms. Birmingham: Packt Publishing.
-*/
+    public bool IsFaulty(Guid id) { lock (gate) return faultyDevices.Contains(id); }
+    public List<Guid> GetFaultyDevices() { lock (gate) return faultyDevices.ToList(); }
+    public int GetFaultyCount() { lock (gate) return faultyDevices.Count; }
+}

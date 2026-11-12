@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PROG7312_SmartX.Algorithms;
+using PROG7312_SmartX.Data;
 using PROG7312_SmartX.Models;
 
 namespace PROG7312_SmartX.Services;
@@ -8,35 +9,70 @@ public sealed class MeshTopologyService
 {
     private readonly DeviceLookupService devices;
     private readonly FaultyDeviceService faults;
+    private readonly DataClass data;
     private readonly string path;
     private readonly object gate = new();
     private List<MeshLink> links = [];
     private HashSet<Guid> offline = [];
-    private sealed record SavedTopology(List<MeshLink> Links, HashSet<Guid> Offline);
+    private Guid? gatewayId;
+    private sealed record SavedTopology(List<MeshLink> Links, HashSet<Guid> Offline, Guid? GatewayId = null);
 
-    public MeshTopologyService(DeviceLookupService devices, FaultyDeviceService faults, IWebHostEnvironment environment)
+    public MeshTopologyService(DeviceLookupService devices, FaultyDeviceService faults,
+        DataClass data, IWebHostEnvironment environment)
     {
         this.devices = devices;
         this.faults = faults;
-        var directory = Path.Combine(environment.ContentRootPath, "App_Data");
+        this.data = data;
+        string directory = Path.Combine(environment.ContentRootPath, "App_Data");
         Directory.CreateDirectory(directory);
         path = Path.Combine(directory, "smartx-mesh.json");
         if (File.Exists(path))
         {
             var saved = JsonSerializer.Deserialize<SavedTopology>(File.ReadAllText(path))
-                ?? throw new InvalidDataException("Could not read saved topology.");
+                ?? throw new InvalidDataException("Saved topology could not be read.");
             links = saved.Links;
             offline = saved.Offline;
-            _ = new MeshGraph(Snapshot());
+            gatewayId = saved.GatewayId;
         }
+        // Upgrade legacy stores: the mesh's explicit offline set is authoritative.
+        foreach (var sensor in devices.GetAllDevices())
+        {
+            sensor.MeshOffline = offline.Contains(sensor.Id);
+            sensor.IsOnline = !sensor.MeshOffline && !faults.IsFaulty(sensor.Id);
+        }
+        _ = new MeshGraph(Snapshot());
+        data.SaveToDisk();
     }
 
-    // Simulation availability is persisted separately from legacy sensor status.
     public MeshSnapshot Snapshot()
     {
         lock (gate)
-            return new(devices.GetAllDevices().Select(s => new MeshNode(s.Id, s.MacAddress, s.Location,
-                !offline.Contains(s.Id) && !faults.IsFaulty(s.Id))).ToList(), links.ToList());
+        {
+            var nodes = devices.GetAllDevices().Select(s =>
+            {
+                bool faulty = faults.IsFaulty(s.Id);
+                bool available = !offline.Contains(s.Id) && !faulty;
+                return new MeshNode(s.Id, s.MacAddress, s.Location, available,
+                    faulty ? "Faulty" : available ? "Online" : "Offline");
+            }).ToList();
+            var snapshot = new MeshSnapshot(nodes, links.ToList(), gatewayId);
+            if (gatewayId is Guid id && nodes.Any(n => n.Id == id))
+            {
+                var reachable = new MeshGraph(snapshot).BreadthFirst(id).Visited.ToHashSet();
+                nodes = nodes.Select(n => n with { Reachable = reachable.Contains(n.Id) }).ToList();
+            }
+            return new(nodes, links.ToList(), gatewayId);
+        }
+    }
+
+    public void SetGateway(Guid id)
+    {
+        lock (gate)
+        {
+            RequireDevice(id);
+            Save(links, offline, id);
+            gatewayId = id;
+        }
     }
 
     public void UpsertLink(MeshLink link)
@@ -45,7 +81,7 @@ public sealed class MeshTopologyService
         {
             var updated = links.Where(e => !SameEdge(e, link.From, link.To)).Append(link).ToList();
             _ = new MeshGraph(new(Snapshot().Nodes, updated));
-            Save(updated, offline);
+            Save(updated, offline, gatewayId);
             links = updated;
         }
     }
@@ -56,13 +92,29 @@ public sealed class MeshTopologyService
         {
             var updated = links.Where(e => !SameEdge(e, from, to)).ToList();
             if (updated.Count == links.Count) return false;
-            Save(updated, offline);
+            Save(updated, offline, gatewayId);
             links = updated;
             return true;
         }
     }
 
-    // Explicit demo action only; never overwrite an existing mesh.
+    public void SetAvailability(Guid id, bool available)
+    {
+        lock (gate)
+        {
+            RequireDevice(id);
+            var updated = new HashSet<Guid>(offline);
+            if (available) updated.Remove(id); else updated.Add(id);
+            Save(links, updated, gatewayId);
+            offline = updated;
+            var sensor = devices.GetDevice(id)!;
+            sensor.MeshOffline = !available;
+            sensor.IsOnline = available && !faults.IsFaulty(id);
+            data.SaveToDisk();
+        }
+    }
+
+    // Creates a partial mesh only when no links exist; never deletes user data.
     public bool TryCreateDemo()
     {
         lock (gate)
@@ -72,33 +124,25 @@ public sealed class MeshTopologyService
             if (ids.Length < 2) throw new ArgumentException("Register at least two sensors first.");
             var demo = new List<MeshLink>();
             for (int i = 1; i < ids.Length; i++) demo.Add(new(ids[i - 1], ids[i], 1 + i % 5));
-            // Two-hop alternatives provide cycles and failure rerouting.
             for (int i = 2; i < ids.Length; i++) demo.Add(new(ids[i - 2], ids[i], 4 + i % 3));
-            Save(demo, offline);
+            Save(demo, offline, gatewayId);
             links = demo;
             return true;
         }
     }
 
-    public void SetAvailability(Guid id, bool available)
+    private void RequireDevice(Guid id)
     {
-        lock (gate)
-        {
-            if (!devices.DeviceExists(id)) throw new ArgumentException("Sensor not found.");
-            var updated = new HashSet<Guid>(offline);
-            if (available) updated.Remove(id); else updated.Add(id);
-            Save(links, updated);
-            offline = updated;
-        }
+        if (!devices.DeviceExists(id)) throw new ArgumentException("Sensor not found.");
     }
 
     private static bool SameEdge(MeshLink edge, Guid from, Guid to) =>
         (edge.From == from && edge.To == to) || (edge.From == to && edge.To == from);
 
-    private void Save(List<MeshLink> updatedLinks, HashSet<Guid> updatedOffline)
+    private void Save(List<MeshLink> updatedLinks, HashSet<Guid> updatedOffline, Guid? updatedGateway)
     {
         string temporary = path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(new SavedTopology(updatedLinks, updatedOffline)));
+        File.WriteAllText(temporary, JsonSerializer.Serialize(new SavedTopology(updatedLinks, updatedOffline, updatedGateway)));
         File.Move(temporary, path, overwrite: true);
     }
 }

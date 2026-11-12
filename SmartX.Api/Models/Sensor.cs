@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace PROG7312_SmartX.Models
@@ -10,7 +10,9 @@ namespace PROG7312_SmartX.Models
         public required string Location { get; set; } //Deployment Location (Microsoft, 2026)
         public SensorType Category { get; set; }
         public DateTime? LastCommunication { get; set; }
-        public bool IsOnline { get; set; }
+        public bool IsOnline { get; set; } = true;
+        public bool MeshOffline { get; set; }
+        public bool IsFaulty { get; set; }
         public List<SensorAttachments> attachment { get; set; } = new List<SensorAttachments>();
     }
 }

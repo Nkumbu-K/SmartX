@@ -11,6 +11,20 @@ public static class MeshEndpoints
     public static void MapMeshEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/network");
+        group.MapPut("/gateway/{id:guid}", (Guid id, DeviceLookupService devices, MeshTopologyService mesh) =>
+        {
+            if (!devices.DeviceExists(id)) return Results.NotFound(new { message = "Sensor not found." });
+            mesh.SetGateway(id);
+            return Results.Ok(mesh.Snapshot());
+        });
+        group.MapGet("/route-to-server", (Guid source, bool? useTree, MeshTopologyService mesh) =>
+        {
+            var snapshot = mesh.Snapshot();
+            if (snapshot.GatewayId is not Guid gateway)
+                return Results.BadRequest(new { message = "Choose and save the server gateway first." });
+            if (!snapshot.Nodes.Any(n => n.Id == source)) return Results.NotFound(new { message = "Source not found." });
+            return Results.Ok(new MeshGraph(snapshot).Route(source, gateway, useTree ?? true));
+        });
         group.MapPost("/demo", (MeshTopologyService mesh) =>
         {
             try

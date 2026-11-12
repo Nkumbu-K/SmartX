@@ -34,6 +34,8 @@ foreach (var packet in dataStore.NumericTelemetry)
 {
     historyService.AddReading(packet);
 }
+// Restore mesh/fault availability before any screen retrieves devices.
+app.Services.GetRequiredService<MeshTopologyService>();
 app.UseHttpsRedirection();
 app.MapHistoryQueries();
 app.MapMeshEndpoints();
