@@ -69,6 +69,10 @@ with tempfile.TemporaryDirectory(prefix="smartx-check-") as directory:
         a, b, c = [node["id"] for node in nodes[:3]]
         unknown = "ffffffff-ffff-ffff-ffff-ffffffffffff"
         assert request("/api/network/")["links"] == []
+        request(f"/api/network/route-to-server?source={a}", expected=400)
+        request(f"/api/network/gateway/{unknown}", "PUT", expected=404)
+        request(f"/api/network/gateway/{c}", "PUT")
+        assert request("/api/network/")["gatewayId"] == c
         for u, v, cost in [(a, b, 1), (b, c, 2), (a, c, 8)]:
             request("/api/network/links", "PUT", {"from": u, "to": v, "cost": cost})
         for u, v, cost in [(a, a, 1), (a, unknown, 1), (a, b, -1)]:
@@ -76,9 +80,17 @@ with tempfile.TemporaryDirectory(prefix="smartx-check-") as directory:
         # Upserting a reverse edge must update rather than duplicate it.
         assert len(request("/api/network/links", "PUT", {"from": b, "to": a, "cost": 1})["links"]) == 3
         assert request("/api/network/mst")["totalCost"] == 3
+        snapshot = request("/api/network/")
+        assert sum(n["reachable"] for n in snapshot["nodes"]) == 3
+        assert request(f"/api/network/route-to-server?source={a}")["hops"] == [a, b, c]
         assert request(f"/api/network/route?source={a}&gateway={c}")["hops"] == [a, b, c]
         request(f"/api/network/nodes/{b}/availability", "PUT", {"available": False})
         assert request(f"/api/network/route?source={a}&gateway={c}")["hops"] == [a, c]
+        assert request(f"/api/devices/{b}")["isOnline"] is False
+        assert request(f"/api/network/route-to-server?source={a}")["hops"] == [a, c]
+        request(f"/api/devices/{b}/faulty", "POST")
+        request(f"/api/devices/{b}/recover", "POST")
+        assert request(f"/api/devices/{b}")["isOnline"] is False, "Recover must not undo manual offline"
         traversal = request(f"/api/network/traverse/{a}")
         assert b in traversal["unavailable"] and b not in traversal["visited"]
         request(f"/api/network/traverse/{a}?algorithm=wrong", expected=400)
@@ -94,8 +106,18 @@ with tempfile.TemporaryDirectory(prefix="smartx-check-") as directory:
         request(f"/api/telemetry/history/{a}/range?from=2026-11-10T00:00:00Z&to=2026-11-09T00:00:00Z", expected=400)
         request(f"/api/telemetry/history/{a}/range?from=invalid&to=invalid", expected=400)
         request(f"/api/telemetry/history/{unknown}/range?{bounds}", expected=404)
+        request(f"/api/devices/{c}/faulty", "POST")
         stop()
         start()
+        assert request("/api/network/")["gatewayId"] == c
+        assert request(f"/api/devices/{c}")["isOnline"] is False
+        assert request(f"/api/network/route-to-server?source={a}")["reachable"] is False
+        assert c in request("/api/devices/faulty")["sensorIds"]
+        request(f"/api/network/nodes/{c}/availability", "PUT", {"available": True})
+        assert request(f"/api/devices/{c}")["isOnline"] is False, "Set Online must not clear a fault"
+        request(f"/api/devices/{c}/recover", "POST")
+        assert request(f"/api/devices/{c}")["isOnline"] is True
+        assert request(f"/api/network/route-to-server?source={a}")["reachable"] is True
         assert len(request("/api/network/")["links"]) == 3
         assert b in request(f"/api/network/traverse/{a}")["unavailable"]
         assert any(r["packetId"] == packet["packetId"] for r in request(path)), "History index must rebuild after restart"
@@ -107,6 +129,6 @@ with tempfile.TemporaryDirectory(prefix="smartx-check-") as directory:
         assert len(demo["links"]) == 2 * len(nodes) - 3
         request(f"/api/network/nodes/{b}/availability", "PUT", {"available": True})
         assert request("/api/network/mst")["components"] == 1
-        print("API checks passed: validation, failure rerouting, fault integration, UTC bounds, restart persistence, link deletion and demo topology.")
+        print("API checks passed: saved server gateway, reachability, consistent availability, fault/offline persistence, validation, rerouting, UTC bounds, restart, deletion and demo mesh.")
     finally:
         stop()

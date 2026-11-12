@@ -335,13 +335,23 @@ The project combines sensor registration, telemetry collection, anomaly detectio
 
 ## Part 3 — Historical Queries and Mesh Routing
 
-The main menu now opens a network dashboard with weighted wireless links,
-BFS/DFS discovery, Kruskal minimum spanning forests, gateway routes, link editing
-and simulated node failures. The telemetry screen also provides AVL date-range
-search. See [Part 3 setup, algorithms, API and demo guide](docs/PART3.md).
+The network dashboard now separates source/link editing from a saved server-connected
+gateway. It displays a spaced scrollable graph, full MAC/location tooltips, availability
+and reachability, BFS/DFS discovery from the gateway, Kruskal minimum spanning forests,
+and highlighted routes to that gateway. Fault and offline states survive restarts.
 
-Run algorithm checks with `dotnet run --project SmartX.Checks`. After building the
-API, run `python scripts/check_api.py` for isolated HTTP and restart checks.
+History initially loads ALL saved readings for the selected sensor and resets its date
+controls to cover them. Users can narrow the range using the per-sensor AVL timestamp
+index. MAC address, location, timestamp, reading and unit are visible in the log.
 
-The simulated topology uses registered sensor identifiers and explicit availability;
-it does not connect to live ESP32 hardware. Power costs are relative estimates.
+Costs are relative link-energy estimates. Reports distinguish the total network-tree
+cost from the selected route's cost. An MST minimises total selected connection cost,
+not every individual route. The selected gateway represents the central-server uplink,
+which is outside this cost model. No live ESP32 discovery or hardware forwarding is
+claimed. Offline status is simulated and uses existing fault flags consistently.
+
+See [full replacement-file list, setup and test walkthrough](docs/PART3.md).
+
+Optional verification: `dotnet run --project SmartX.Checks`; after building the API,
+`python scripts/check_api.py`. If the Checks project is absent from your school copy,
+remove its project entry from the solution; it is not needed to run the application.
