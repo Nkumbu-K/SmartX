@@ -16,6 +16,7 @@ builder.Services.AddSingleton<TelemetryHistoryService>();
 builder.Services.AddSingleton<FaultyDeviceService>();
 builder.Services.AddSingleton<CommandHistoryService>();
 builder.Services.AddSingleton<RecommendationService>();
+builder.Services.AddSingleton<UserActivityService>();
 
 var app = builder.Build();
 
@@ -39,6 +40,7 @@ app.Services.GetRequiredService<MeshTopologyService>();
 app.UseHttpsRedirection();
 app.MapHistoryQueries();
 app.MapMeshEndpoints();
+app.MapActivityEndpoints();
 
 //Get all registered devices
 app.MapGet("/api/devices", (DeviceLookupService deviceLookup) =>
@@ -204,6 +206,7 @@ app.MapPost("/api/telemetry", (TelemetryRequest request, DataClass data,Telemetr
     var packet = new TelemetryPacket<double>( request.SensorId, request.Number, request.Unit );
 
     // Store the reading in the main data store.
+    sensor.LastCommunication = packet.Timestamp;
     data.NumericTelemetry.Add(packet);
 
     // Add the same reading to telemetry history.
@@ -305,6 +308,8 @@ app.MapPost(
             });
         }
 
+        var sensor = data.sensor.FirstOrDefault(s => s.Id == packet.SensorId);
+        if (sensor is not null) sensor.LastCommunication = packet.Timestamp;
         data.NumericTelemetry.Add(packet);
 
         // Add the packet to the sorted telemetry history.
@@ -544,7 +549,8 @@ app.MapPost("/api/telemetry/analyze",  (TelemetryAnalysisRequest request,DeviceL
 app.MapPost("/api/commands/send",
     (CommandRequest request,
      DeviceLookupService deviceLookup,
-     CommandHistoryService commandHistory) =>
+     CommandHistoryService commandHistory,
+     UserActivityService activity) =>
     {
         if (!deviceLookup.DeviceExists(request.SensorId))
         {
@@ -589,6 +595,7 @@ app.MapPost("/api/commands/send",
         };
 
         commandHistory.PushCommand(command);
+        activity.RecordCommand(request.SensorId, commandName);
 
         return Results.Ok(new
         {

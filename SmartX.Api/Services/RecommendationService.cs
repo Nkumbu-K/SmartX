@@ -1,4 +1,4 @@
-﻿ using PROG7312_SmartX.Models;
+ using PROG7312_SmartX.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,13 +11,15 @@ namespace PROG7312_SmartX.Services
         private readonly TelemetryHistoryService _historyService;
         private readonly FaultyDeviceService _faultyService;
         private readonly CommandHistoryService _commandHistory;
+        private readonly UserActivityService _activity;
 
-        public RecommendationService( DeviceLookupService deviceLookup, TelemetryHistoryService historyService,  FaultyDeviceService faultyService, CommandHistoryService commandHistory)
+        public RecommendationService( DeviceLookupService deviceLookup, TelemetryHistoryService historyService,  FaultyDeviceService faultyService, CommandHistoryService commandHistory, UserActivityService activity)
         {
             _deviceLookup = deviceLookup;
             _historyService = historyService;
             _faultyService = faultyService;
             _commandHistory = commandHistory;
+            _activity = activity;
         }
 
         public IEnumerable<object> GetAllRecommendations()
@@ -103,7 +105,8 @@ namespace PROG7312_SmartX.Services
                 totalReadings = readings.Count,
                 totalCommands = commands.Count,
                 isFaulty,
-                recommendations
+                recommendations,
+                patternRecommendations = _activity.GetPatternRecommendations(device.Id)
             };
         }
         private static void AnalyseReadingPatterns( List<TelemetryPacket<double>> readings,List<string> recommendations)
