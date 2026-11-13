@@ -1,16 +1,19 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 
 namespace SmartX.App.Forms
 {
     public partial class Sensors : Form
     {
         private readonly HttpClient _httpClient;
+        private readonly ActivitySearchTracker _searchTracker;
         public class SensorDto //Represents a Data Transfer Object
         {
             public Guid Id { get; set; }
             public string MacAddress { get; set; } = "";
             public string Location { get; set; } = "";
             public int Category { get; set; }
+            public bool IsOnline { get; set; }
+            public bool IsFaulty { get; set; }
         }
 
         private List<SensorDto> _sensors = new List<SensorDto>(); 
@@ -26,11 +29,12 @@ namespace SmartX.App.Forms
                 BaseAddress = new Uri("https://localhost:7154/")
             };
 
+            _searchTracker = new ActivitySearchTracker(_httpClient, textBox1);
             AddBackToMenuButton();
 
             LoadSensors();
 
-            FormClosing += (_, _) => _httpClient.Dispose();
+            FormClosing += (_, _) => { _searchTracker.Dispose(); _httpClient.Dispose(); };
         }
 
         private void AddBackToMenuButton()
@@ -71,7 +75,7 @@ namespace SmartX.App.Forms
                             PropertyNameCaseInsensitive = true //(Microsoft, 2026)
                         }) ?? new();
 
-                DisplaySensors(_sensors);
+                textBox1_TextChanged(textBox1, EventArgs.Empty);
             }
             catch (Exception ex)
             {
@@ -83,19 +87,22 @@ namespace SmartX.App.Forms
         {
             panel1.Controls.Clear();
 
+            if (!sensors.Any(s => s.Id == _selectedSensorId)) _selectedSensorId = Guid.Empty;
+            panel1.AutoScroll = true;
             int top = 10;
 
             foreach (var sensor in sensors)
             {
                 Label lbl = new Label();
 
-                lbl.Width = 500;
+                lbl.Width = 630;
                 lbl.Height = 25;
 
                 lbl.Text =
                     $"{sensor.MacAddress} | " +
                     $"{sensor.Location} | " +
-                    $"{GetCategory(sensor.Category)}";
+                    $"{GetCategory(sensor.Category)} | " +
+                    (sensor.IsFaulty ? "Faulty" : sensor.IsOnline ? "Online" : "Offline");
 
                 lbl.Tag = sensor.Id;
 
@@ -109,8 +116,8 @@ namespace SmartX.App.Forms
 
         private void Sensor_Click( object? sender,EventArgs e)
         {
-            Label lbl = (Label)sender!;
-            _selectedSensorId =  (Guid)lbl.Tag;
+            if (sender is not Label lbl || lbl.Tag is not Guid id) return;
+            _selectedSensorId = id;
 
             // Reset background colors of all items in the panel
             foreach (Control control in panel1.Controls)
@@ -132,7 +139,7 @@ namespace SmartX.App.Forms
         }
 
         //verifying selection and opening the detailed sensor profile form.
-        private void btnViewSensors_Click( object sender,EventArgs e)
+        private async void btnViewSensors_Click( object sender,EventArgs e)
         {
             if (_selectedSensorId == Guid.Empty)
             {
@@ -140,9 +147,14 @@ namespace SmartX.App.Forms
                 return;
             }
 
-            SensorProfile profile = new SensorProfile(_selectedSensorId);
-
-            profile.ShowDialog();
+            try
+            {
+                await _searchTracker.FlushAsync();
+                using var profile = new SensorProfile(_selectedSensorId);
+                profile.ShowDialog(this);
+                LoadSensors();
+            }
+            catch (Exception ex) { MessageBox.Show("Could not open sensor: " + ex.Message); }
         }
 
         //Filters the displayed sensor list
@@ -150,7 +162,7 @@ namespace SmartX.App.Forms
         {
             string search = textBox1.Text.ToLower();
 
-            var filtered = _sensors.Where(s => s.MacAddress.ToLower().Contains(search) || s.Location.ToLower().Contains(search))  .ToList();
+            var filtered = _sensors.Where(s => s.MacAddress.ToLower().Contains(search) || s.Location.ToLower().Contains(search) || s.Id.ToString().ToLower().Contains(search))  .ToList();
             DisplaySensors(filtered);
         }
     }

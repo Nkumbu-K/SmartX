@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -24,6 +24,9 @@ namespace SmartX.App.Forms
 
         private bool isRefreshingTelemetry;
         private bool isRefreshingDevices;
+        private bool rebindingDevices;
+        private int recommendationVersion;
+        private ActivitySearchTracker searchTracker = null!;
 
         private List<SensorDto> registeredSensors = new();
         private List<TelemetryDto> telemetryReadings = new();
@@ -43,6 +46,12 @@ namespace SmartX.App.Forms
             ConfigureExistingControls();
             CreateFilteringControls();
             CreateRecommendationControls();
+            searchTracker = new ActivitySearchTracker(httpClient, txtSearch);
+            AddFeedbackControls();
+            cmbDevices.SelectedIndexChanged += async (_, _) =>
+            {
+                if (!isRefreshingDevices && !rebindingDevices) await LoadRecommendationsAsync();
+            };
 
             telemetryTimer.Tick += TelemetryTimer_Tick;
             Shown += RealTimeDashboard_Shown;
@@ -200,14 +209,14 @@ namespace SmartX.App.Forms
                 Name = "grpRecommendations",
                 Text = "Suggested Actions / Automated Insights",
                 Location = new Point(61, 590),
-                Size = new Size(886, 85)
+                Size = new Size(886, 190)
             };
 
             lstSuggestedActions = new ListBox
             {
                 Name = "lstSuggestedActions",
                 Location = new Point(12, 25),
-                Size = new Size(650, 48),
+                Size = new Size(650, 145),
                 HorizontalScrollbar = true
             };
 
@@ -216,7 +225,7 @@ namespace SmartX.App.Forms
                 Name = "lblRecommendationStatus",
                 Text = "Recommendations have not been loaded yet.",
                 Location = new Point(675, 28),
-                Size = new Size(195, 45),
+                Size = new Size(195, 130),
                 AutoSize = false
             };
 
@@ -245,11 +254,6 @@ namespace SmartX.App.Forms
             try
             {
                 registeredSensors = await httpClient.GetFromJsonAsync<List<SensorDto>>("api/devices") ?? new List<SensorDto>(); //Microsoft (2026d)
-
-                cmbDevices.DataSource = null;
-                cmbDevices.DataSource = registeredSensors;
-                cmbDevices.DisplayMember = nameof(SensorDto.MacAddress);
-                cmbDevices.ValueMember = nameof(SensorDto.Id);
 
                 PopulateCategoryFilter();
                 ApplyDeviceFilters();
@@ -291,9 +295,6 @@ namespace SmartX.App.Forms
 
         private void ApplyDeviceFilters()
         {
-            if (cmbDevices.DataSource == null)
-                return;
-
             string search = txtSearch.Text.Trim();
 
             string categorySelection = cmbCategoryFilter.SelectedItem?.ToString() ?? "All categories";
@@ -315,17 +316,21 @@ namespace SmartX.App.Forms
             // Avoid resetting the selection when it is still valid.
             Guid? previousId = (cmbDevices.SelectedItem as SensorDto)?.Id;
 
-            cmbDevices.DataSource = null;
-            cmbDevices.DataSource = filteredSensors;
-            cmbDevices.DisplayMember = nameof(SensorDto.MacAddress);
-            cmbDevices.ValueMember = nameof(SensorDto.Id);
-
-            if (previousId.HasValue)
+            rebindingDevices = true;
+            try
             {
-                int index = filteredSensors.FindIndex(s => s.Id == previousId.Value);
-
-                if (index >= 0) cmbDevices.SelectedIndex = index;
+                cmbDevices.DataSource = null;
+                cmbDevices.DisplayMember = nameof(SensorDto.MacAddress);
+                cmbDevices.ValueMember = nameof(SensorDto.Id);
+                cmbDevices.DataSource = filteredSensors;
+                if (previousId.HasValue)
+                {
+                    int index = filteredSensors.FindIndex(s => s.Id == previousId.Value);
+                    if (index >= 0) cmbDevices.SelectedIndex = index;
+                }
             }
+            finally { rebindingDevices = false; }
+            if (!isRefreshingDevices) _ = LoadRecommendationsAsync();
         }
 
         private async Task RefreshFaultyDevicesAsync()
@@ -448,90 +453,84 @@ namespace SmartX.App.Forms
 
         private async Task LoadRecommendationsAsync()
         {
+            int version = ++recommendationVersion;
+            if (cmbDevices.SelectedItem is not SensorDto selected)
+            {
+                lstSuggestedActions.Items.Clear();
+                lstSuggestedActions.Items.Add("Select a sensor to view its recommendations.");
+                lblRecommendationStatus.Text = "No selected sensor.";
+                return;
+            }
+            lstSuggestedActions.Items.Clear();
+            lstSuggestedActions.Items.Add($"Loading recommendations for {selected.MacAddress}...");
+            lblRecommendationStatus.Text = $"Selected: {selected.MacAddress}";
             try
             {
-                using var response = await httpClient.GetAsync("api/recommendations");
-
-                response.EnsureSuccessStatusCode();
-
-                string json = await response.Content.ReadAsStringAsync();
-
+                var result = await httpClient.GetFromJsonAsync<SensorRecommendationsDto>($"api/recommendations/{selected.Id}");
+                if (IsDisposed || version != recommendationVersion) return;
+                if (result is null || result.SensorId != selected.Id) throw new InvalidDataException("Recommendation sensor mismatch.");
                 lstSuggestedActions.Items.Clear();
-
-                using JsonDocument document = JsonDocument.Parse(json); //Microsoft (2026g)
-
-                ExtractRecommendationText(document.RootElement);
-
-                if (lstSuggestedActions.Items.Count == 0)
-                {
-                    lstSuggestedActions.Items.Add("No recommendations are currently available.");
-                }
-
-                lblRecommendationStatus.Text = $"Loaded at {DateTime.Now:HH:mm:ss}";
+                lstSuggestedActions.Items.Add($"SENSOR: {result.MacAddress} — {result.Location}");
+                foreach (string text in result.Recommendations) lstSuggestedActions.Items.Add(text);
+                lstSuggestedActions.Items.Add("SEARCH-COMMAND PATTERNS:");
+                foreach (string text in result.PatternRecommendations) lstSuggestedActions.Items.Add(text);
+                if (result.PatternRecommendations.Count == 0) lstSuggestedActions.Items.Add("No repeated independent sequence for this sensor yet.");
+                lblRecommendationStatus.Text = $"{result.MacAddress}\r\n{result.Location}\r\nReadings: {result.TotalReadings}\r\nCommands: {result.TotalCommands}\r\nUpdated {DateTime.Now:HH:mm:ss}";
             }
             catch (Exception ex)
             {
+                if (IsDisposed || version != recommendationVersion) return;
                 lstSuggestedActions.Items.Clear();
-                lstSuggestedActions.Items.Add("Unable to load recommendations. Check the API.");
-
+                lstSuggestedActions.Items.Add("Unable to load this sensor's recommendations: " + ex.Message);
                 lblRecommendationStatus.Text = "Load failed.";
-
-                System.Diagnostics.Debug.WriteLine("Recommendation load failed: " + ex.Message);
             }
         }
 
-        private void ExtractRecommendationText(JsonElement element)
+        private void AddFeedbackControls()
         {
-            if (element.ValueKind == JsonValueKind.String)
+            ClientSize = new Size(Math.Max(ClientSize.Width, 1040), 900);
+            AutoScroll = true;
+            AutoScrollMinSize = new Size(1040, 900);
+            if (Controls["btnBackToMenu"] is Button back)
             {
-                string? text = element.GetString();
-
-                if (!string.IsNullOrWhiteSpace(text))
-                    lstSuggestedActions.Items.Add(text);
-
-                return;
+                back.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+                back.Location = new Point(10, 840);
             }
-
-            if (element.ValueKind == JsonValueKind.Array)
+            var actions = new FlowLayoutPanel
             {
-                foreach (JsonElement item in element.EnumerateArray()) ExtractRecommendationText(item);
-
-                return;
-            }
-
-            if (element.ValueKind == JsonValueKind.Object)
+                Location = new Point(185, 840), Size = new Size(830, 45),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left
+            };
+            var queues = new Button { Text = "Telemetry / Alert queues", AutoSize = true };
+            var activity = new Button { Text = "Search activity / patterns", AutoSize = true };
+            var refresh = new Button { Text = "Refresh insights", AutoSize = true };
+            var profile = new Button { Text = "Selected sensor profile", AutoSize = true };
+            queues.Click += async (_, _) =>
             {
-                bool foundRecommendationProperty = false;
-
-                foreach (JsonProperty property in element.EnumerateObject())
+                using var manager = new QueueManagement((cmbDevices.SelectedItem as SensorDto)?.Id);
+                manager.ShowDialog(this);
+                await RefreshTelemetryAsync(); await LoadRecommendationsAsync();
+            };
+            activity.Click += async (_, _) =>
+            {
+                try
                 {
-                    string name = property.Name;
-
-                    if (name.Contains("recommend", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("suggest", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("insight", StringComparison.OrdinalIgnoreCase) ||
-                        name.Contains("action", StringComparison.OrdinalIgnoreCase))
-                    {
-                        foundRecommendationProperty = true;
-                        ExtractRecommendationText(property.Value);
-                    }
+                    await searchTracker.FlushAsync();
+                    using var viewer = new ActivityHistory((cmbDevices.SelectedItem as SensorDto)?.Id);
+                    viewer.ShowDialog(this);
                 }
-
-                if (!foundRecommendationProperty)
-                {
-                    foreach (JsonProperty property in element.EnumerateObject())
-                    {
-                        if (property.Value.ValueKind == JsonValueKind.String ||
-                            property.Value.ValueKind == JsonValueKind.Number ||
-                            property.Value.ValueKind == JsonValueKind.True ||
-                            property.Value.ValueKind == JsonValueKind.False)
-                        {
-                            lstSuggestedActions.Items.Add(
-                                $"{property.Name}: {property.Value}");
-                        }
-                    }
-                }
-            }
+                catch (Exception ex) { MessageBox.Show("Could not load activity: " + ex.Message); }
+            };
+            refresh.Click += async (_, _) => await LoadRecommendationsAsync();
+            profile.Click += async (_, _) =>
+            {
+                if (cmbDevices.SelectedItem is not SensorDto sensor) { MessageBox.Show("Select a sensor first."); return; }
+                using var details = new SensorProfile(sensor.Id);
+                details.ShowDialog(this);
+                await RefreshFaultyDevicesAsync(); await LoadRecommendationsAsync();
+            };
+            actions.Controls.AddRange([queues, activity, refresh, profile]);
+            Controls.Add(actions);
         }
 
         private async void TelemetryTimer_Tick(object? sender, EventArgs e)
@@ -580,6 +579,8 @@ namespace SmartX.App.Forms
 
             try
             {
+                // Flush a pending completed search before recording the successful command.
+                await searchTracker.FlushAsync();
                 using var response = await httpClient.PostAsJsonAsync("api/commands/send", request);
 
                 if (response.IsSuccessStatusCode)
@@ -631,6 +632,7 @@ namespace SmartX.App.Forms
         private void RealTimeDashboard_FormClosing(object? sender, FormClosingEventArgs e)
         {
             telemetryTimer.Stop();
+            searchTracker.Dispose();
             telemetryTimer.Dispose();
             httpClient.Dispose();
         }
