@@ -355,3 +355,25 @@ See [full replacement-file list, setup and test walkthrough](docs/PART3.md).
 Optional verification: `dotnet run --project SmartX.Checks`; after building the API,
 `python scripts/check_api.py`. If the Checks project is absent from your school copy,
 remove its project entry from the solution; it is not needed to run the application.
+
+## Lecturer feedback corrections — Part 2
+
+The command dashboard and sensor profile now expose **Telemetry / Alert queues**.
+Users can enqueue readings and process the FIFO queue, or enqueue alerts with
+priorities 1 (High), 2 (Medium), and 3 (Low) and process the highest priority.
+Pending counts and activity logs demonstrate the queue behaviour. Queues are
+session-local; processed telemetry is saved and indexed in AVL history.
+
+Sensor-browser and dashboard searches are recorded after a short pause or Enter.
+Successful commands are recorded on the server. Two independent matching
+search-command sequences can produce a suggestion; one command is not reused for
+multiple occurrences. Ambiguous searches are logged without guessing a sensor.
+The **Search activity / patterns** viewer makes these events visible. Activity
+resets when the API restarts and is intended for a single-operator demonstration.
+
+The dashboard now loads recommendations for the selected sensor, and its profile
+shows that same sensor's insights and patterns with MAC/location headings. The
+profile displays actual availability and recorded Last Communication information.
+
+See [the complete transfer list and manual tests](docs/PART2-FEEDBACK.md).
+Optional isolated API verification: `python scripts/check_part2_feedback.py`.
